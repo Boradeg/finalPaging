@@ -1,5 +1,4 @@
 package com.example.finalpaging
-
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -9,14 +8,27 @@ import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import android.widget.ProgressBar
-
-
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import androidx.paging.PagingDataAdapter
+import androidx.recyclerview.widget.DiffUtil
+import androidx.paging.PagingSource
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.TextView
+import androidx.core.view.isVisible
+import androidx.lifecycle.lifecycleScope
+import androidx.paging.LoadState
+import androidx.paging.LoadStateAdapter
+import androidx.paging.PagingState
 import androidx.recyclerview.widget.RecyclerView
-
+import kotlinx.coroutines.flow.Flow
 import retrofit2.http.GET
 import retrofit2.http.Query
 
@@ -39,11 +51,37 @@ data class Result(
     val length: Int,
     val tags: List<String>
 )
+
 interface QuotableApi {
     @GET("quotes")
-    fun getQuotes(@Query("page") page: Int): Call<QuotesData>
+    suspend fun getQuotes(@Query("page") page: Int): QuotesData
 }
 
+class QuotesPagingSource(private val quotableApi: QuotableApi) : PagingSource<Int, Result>() {
+
+    override suspend fun load(params: LoadParams<Int>): LoadResult<Int, Result> {
+        try {
+            val page = params.key ?: 1
+            val response = quotableApi.getQuotes(page)
+            val quotes = response.results
+
+            // Return results with next key (page) for paging
+            return LoadResult.Page(
+                data = quotes,
+                prevKey = if (page == 1) null else page - 1,
+                nextKey = if (quotes.isEmpty()) null else page + 1
+            )
+        } catch (e: Exception) {
+            // Handle error
+            return LoadResult.Error(e)
+        }
+    }
+
+    override fun getRefreshKey(state: PagingState<Int, Result>): Int? {
+        // Not needed for this example
+        return null
+    }
+}
 
 class MainActivity : AppCompatActivity() {
 
@@ -51,122 +89,121 @@ class MainActivity : AppCompatActivity() {
     private lateinit var quotesAdapter: QuotesAdapter
     private lateinit var progressBar: ProgressBar
 
-    private var currentPage = 1
-    private var isLoading = false
-    private var isLastPage = false
-
     private val BASE_URL = "https://api.quotable.io/"
-
-    private val retrofit = Retrofit.Builder()
+    private val quotableApi = Retrofit.Builder()
         .baseUrl(BASE_URL)
         .addConverterFactory(GsonConverterFactory.create())
         .build()
-
-    private val quotableApi = retrofit.create(QuotableApi::class.java)
+        .create(QuotableApi::class.java)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // Initialize RecyclerView and adapter
         recyclerView = findViewById(R.id.recyclerView)
+        progressBar = findViewById(R.id.progressBar)
+
         quotesAdapter = QuotesAdapter()
 
-        // Set up LinearLayoutManager for RecyclerView
         val layoutManager = LinearLayoutManager(this)
         recyclerView.layoutManager = layoutManager
 
-        // Set up RecyclerView adapter
-        recyclerView.adapter = quotesAdapter
+        // Attach the load state adapter
+        recyclerView.adapter = quotesAdapter.withLoadStateHeaderAndFooter(
+            header = QuotesLoadStateAdapter { quotesAdapter.retry() },
+            footer = QuotesLoadStateAdapter { quotesAdapter.retry() }
+        )
 
-        // Initialize ProgressBar
-        progressBar = findViewById(R.id.progressBar)
+        val pager = Pager(PagingConfig(pageSize = 1)) {
+            QuotesPagingSource(quotableApi)
+        }
 
-        // Add scroll listener for pagination
-        recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
-            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
-                super.onScrolled(recyclerView, dx, dy)
+        val pagingDataFlow = pager.flow
 
-                val visibleItemCount = layoutManager.childCount
-                val totalItemCount = layoutManager.itemCount
-                val firstVisibleItemPosition = layoutManager.findFirstVisibleItemPosition()
-
-                if (!isLoading && !isLastPage) {
-                    if (visibleItemCount + firstVisibleItemPosition >= totalItemCount
-                        && firstVisibleItemPosition >= 0
-                    ) {
-                        loadMoreItems()
-                    }
-                }
+        lifecycleScope.launch {
+            pagingDataFlow.collectLatest { pagingData ->
+                quotesAdapter.submitData(pagingData)
             }
-        })
+        }
+    }
+}
+class QuotesLoadStateAdapter(private val retry: () -> Unit) : LoadStateAdapter<QuotesLoadStateAdapter.LoadStateViewHolder>() {
 
-        // Load the initial page of quotes
-        loadQuotes(currentPage)
+    override fun onCreateViewHolder(parent: ViewGroup, loadState: LoadState): LoadStateViewHolder {
+        val view = LayoutInflater.from(parent.context).inflate(R.layout.item_loading, parent, false)
+        return LoadStateViewHolder(view, retry)
     }
 
-    private fun loadQuotes(page: Int) {
-        // Show ProgressBar while loading
-        progressBar.visibility = ProgressBar.VISIBLE
-
-        // Make a network request to the Quotable API to get quotes for the specified page
-        quotableApi.getQuotes(page).enqueue(object : Callback<QuotesData> {
-            override fun onResponse(call: Call<QuotesData>, response: Response<QuotesData>) {
-                // Hide ProgressBar after loading
-                progressBar.visibility = ProgressBar.GONE
-
-                if (response.isSuccessful) {
-                    val quotesData = response.body()
-                    quotesData?.let {
-                        quotesAdapter.addAllQuotes(it.results)
-
-                        // Check if it's the last page
-                        isLastPage = it.page == it.totalPages
-
-                        // Increment the page number
-                        currentPage++
-                    }
-                }
-                isLoading = false
-            }
-
-            override fun onFailure(call: Call<QuotesData>, t: Throwable) {
-                // Hide ProgressBar on failure
-                progressBar.visibility = ProgressBar.GONE
-
-                // Handle failure
-                isLoading = false
-            }
-        })
+    override fun onBindViewHolder(holder: LoadStateViewHolder, loadState: LoadState) {
+        holder.bind(loadState)
     }
 
-    private fun loadMoreItems() {
-        isLoading = true
-        loadQuotes(currentPage)
+    class LoadStateViewHolder(itemView: View, retry: () -> Unit) : RecyclerView.ViewHolder(itemView) {
+        private val progressBar: ProgressBar = itemView.findViewById(R.id.loadStateProgressBar)
+        private val textView: TextView = itemView.findViewById(R.id.loadStateTextView)
+        private val retryButton: Button = itemView.findViewById(R.id.retryButton)
+
+        init {
+            retryButton.setOnClickListener { retry.invoke() }
+        }
+
+        fun bind(loadState: LoadState) {
+            when (loadState) {
+                is LoadState.Loading -> {
+                    progressBar.visibility = View.VISIBLE
+                    textView.text = "Loading..."
+                    retryButton.visibility = View.GONE
+                }
+                is LoadState.Error -> {
+                    progressBar.visibility = View.GONE
+                    textView.text = "Error: ${loadState.error.localizedMessage}"
+                    retryButton.visibility = View.VISIBLE
+                }
+                is LoadState.NotLoading -> {
+                    progressBar.visibility = View.GONE
+                    textView.text = ""
+                    retryButton.visibility = View.GONE
+                }
+            }
+        }
     }
 }
 
-class QuotesAdapter : RecyclerView.Adapter<QuotesAdapter.QuoteViewHolder>() {
+class QuotesAdapter :
+    PagingDataAdapter<Result, RecyclerView.ViewHolder>(QUOTES_COMPARATOR) {
 
-    private val quotesList: MutableList<Result> = mutableListOf()
+    private val VIEW_TYPE_QUOTE = 0
+    private val VIEW_TYPE_PROGRESS = 1
 
-    fun addAllQuotes(quotes: List<Result>) {
-        quotesList.addAll(quotes)
-        notifyDataSetChanged()
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+        return when (viewType) {
+            VIEW_TYPE_QUOTE -> {
+                val view =
+                    LayoutInflater.from(parent.context).inflate(R.layout.item_quote, parent, false)
+                QuoteViewHolder(view)
+            }
+            VIEW_TYPE_PROGRESS -> {
+                val view = LayoutInflater.from(parent.context)
+                    .inflate(R.layout.item_loading, parent, false)
+                ProgressViewHolder(view)
+            }
+            else -> throw IllegalArgumentException("Invalid view type")
+        }
     }
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): QuoteViewHolder {
-        val view = LayoutInflater.from(parent.context).inflate(R.layout.item_quote, parent, false)
-        return QuoteViewHolder(view)
+    override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+        when (holder) {
+            is QuoteViewHolder -> getItem(position)?.let { holder.bind(it) }
+            is ProgressViewHolder -> holder.bind()
+        }
     }
 
-    override fun onBindViewHolder(holder: QuoteViewHolder, position: Int) {
-        val quote = quotesList[position]
-        holder.bind(quote)
-    }
-
-    override fun getItemCount(): Int {
-        return quotesList.size
+    override fun getItemViewType(position: Int): Int {
+        return if (position < itemCount && getItem(position) != null) {
+            VIEW_TYPE_QUOTE
+        } else {
+            VIEW_TYPE_PROGRESS
+        }
     }
 
     class QuoteViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
@@ -178,5 +215,25 @@ class QuotesAdapter : RecyclerView.Adapter<QuotesAdapter.QuoteViewHolder>() {
             contentTextView.text = quote.content
         }
     }
-}
 
+    class ProgressViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+        private val progressBar: ProgressBar = itemView.findViewById(R.id.progressBar)
+
+        fun bind() {
+            // You can customize the progress bar as needed
+            progressBar.visibility = View.VISIBLE
+        }
+    }
+
+    companion object {
+        private val QUOTES_COMPARATOR = object : DiffUtil.ItemCallback<Result>() {
+            override fun areItemsTheSame(oldItem: Result, newItem: Result): Boolean {
+                return oldItem._id == newItem._id
+            }
+
+            override fun areContentsTheSame(oldItem: Result, newItem: Result): Boolean {
+                return oldItem == newItem
+            }
+        }
+    }
+}
