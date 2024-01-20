@@ -22,6 +22,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.TextView
+import androidx.appcompat.widget.SearchView
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
 import androidx.paging.LoadState
@@ -30,8 +31,10 @@ import androidx.paging.PagingState
 import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.flow.Flow
 import okhttp3.OkHttpClient
+import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Header
+import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
 
@@ -78,48 +81,64 @@ enum class DoctorName {
     PriyaDoc
 }
 
-
+// Add a new data class for the search request
+data class SearchRequest(
+    val clientId: Int,
+    val searchText: String,
+    val pageNumber: Int,
+    val rowsPerPage: Int
+)
 interface QuotableApi {
+    // ... (existing methods)
 
+    @POST("api/SearchPatient")
+    suspend fun searchPatients(
+        @Header("Authorization") token: String,
+        @Body searchRequest: SearchRequest
+    ): DataClass
+
+    // Add another method for the initial data fetch (GET request)
     @GET("api/Patient/{clinicId}/{stateId}/{countryId}/{pageNumber}/10")
-    suspend fun getQuotes(
+    suspend fun getInitialData(
         @Header("Authorization") token: String,
         @Path("clinicId") clinicId: Int,
         @Path("stateId") stateId: Int,
         @Path("countryId") countryId: Int,
         @Path("pageNumber") pageNumber: Int
     ): DataClass
-    @GET("api/SearchPatient/{clinicId}/{searchText}/{pageNumber}/10")
-    suspend fun searchPatients(
-        @Header("Authorization") token: String,
-        @Path("clinicId") clinicId: Int,
-        @Path("searchText") searchText: String,
-        @Path("pageNumber") pageNumber: Int
-    ): DataClass
 }
 
-class QuotesPagingSource(private val quotableApi: QuotableApi) : PagingSource<Int, PatientListDto>() {
+// Modify the QuotesPagingSource to use POST for searching
+class QuotesPagingSource(
+    private val quotableApi: QuotableApi,
+    private val isSearch: Boolean = false,
+    private val searchText: String? = null
+) : PagingSource<Int, PatientListDto>() {
 
     private val token = "Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6ImQwVm5wVG9wQU9jN05fUDFDQjVkb1EiLCJ0eXAiOiJhdCtqd3QifQ.eyJuYmYiOjE3MDU3MzI0NjQsImV4cCI6MTcwNTczNjA2NCwiaXNzIjoiaHR0cHM6Ly92aXRhaW5zaWdodHMtaWRlbnRpdHkuYXp1cmV3ZWJzaXRlcy5uZXQiLCJhdWQiOlsiZGdfYXBwb2ludG1lbnRfYXBpIiwiSWRlbnRpdHlTZXJ2ZXJBcGkiLCJ0ZXN0X3NlcnZpY2UiXSwiY2xpZW50X2lkIjoiVml0YUFuZ3VsYXJXZWJUZXN0Iiwic3ViIjoiNzM5ODliYjctOTk4NC00MGEyLWE1OWEtZjE2OTFkOTdmODgxIiwiYXV0aF90aW1lIjoxNzA1NzMyNDY0LCJpZHAiOiJsb2NhbCIsInJvbGUiOiJzdXBlcnVzZXIiLCJwcmVmZXJyZWRfdXNlcm5hbWUiOiJjY2hpY2FnbyIsIm5hbWUiOiJDY2hpY2FnbyBDbGluaWMiLCJlbWFpbCI6ImNoaWNhZ28uY2xpZW50QHlvcG1haWwuY29tIiwicGhvbmVOdW1iZXIiOiI0NTY0NTU0OTc5IiwiZmlyc3ROYW1lIjoiQ2NoaWNhZ28iLCJsYXN0TmFtZSI6IkNsaW5pYyIsImNsaWVudElkIjoiMzM4IiwiY2xpbmljSWQiOiI0MTMiLCJwcm92aWRlcklkIjoiNzQ4IiwiYXBwVXNlcklkIjoiMCIsInNjb3BlIjpbImVtYWlsIiwib3BlbmlkIiwicHJvZmlsZSIsInJvbGUiLCJ0ZW5lbnQiLCJkZ19hcHBvaW50bWVudF9hcGkiLCJJZGVudGl0eVNlcnZlckFwaSIsInRlc3Rfc2VydmljZSJdLCJhbXIiOlsicHdkIl19.Mylk6UNdpyWYmU6ruguMsNhOX-wLL5GxkaBAX8y4xsBZM3CkigCUvKggimcdUNp0ZuhgjZw1VvCJH6H2KSqHf2YuZ1LsESXg8NxM9DmELUV4D62x865TcFr-UdyvHkrFeP2y56RpbSJY0dgXem1zMGwgGoWvAKbqmdY8S4cavvSQFwQTy_lcuJgqVhrXNwVDP3_zQZ1d93_fIrOwGog7xezCTxCEwd4H1bWue9bffJFWt-80MC6bWEBsgxuu_73U3ZDAo66wgX1gPQ5FlO3sRDzbdAUnTG_uKOOPAeNxRxp1rFLbArbdlxBFXoS4AKWAC8eUeXK8riDx0N4Pg_Yg2w"
 
     override suspend fun load(params: LoadParams<Int>): LoadResult<Int, PatientListDto> {
         try {
             val page = params.key ?: 1
-            val response = quotableApi.getQuotes(token, 338, 0, 0, page)
+
+            val response = if (isSearch) {
+                val searchRequest = SearchRequest(clientId = 338, searchText = searchText.orEmpty(), pageNumber = page, rowsPerPage = 10)
+                quotableApi.searchPatients(token, searchRequest)
+            } else {
+                quotableApi.getInitialData(token, 338, 0, 0, page)
+            }
+
             val quotes = response.patientListDto
 
-            // Return results with next key (page) for paging
             return LoadResult.Page(
                 data = quotes,
                 prevKey = if (page == 1) null else page - 1,
                 nextKey = if (quotes.isEmpty()) null else page + 1
             )
         } catch (e: Exception) {
-            // Handle error
             return LoadResult.Error(e)
         }
     }
-
     override fun getRefreshKey(state: PagingState<Int, PatientListDto>): Int? {
         // Not needed for this example
         return null
@@ -127,10 +146,35 @@ class QuotesPagingSource(private val quotableApi: QuotableApi) : PagingSource<In
 }
 
 class MainActivity : AppCompatActivity() {
+    // Modify the performSearch method in MainActivity
+    private fun fetchInitialData() {
+        val pager = Pager(PagingConfig(pageSize = 1)) {
+            QuotesPagingSource(quotableApi)
+        }
 
+        val pagingDataFlow = pager.flow
+
+        lifecycleScope.launch {
+            pagingDataFlow.collectLatest { pagingData ->
+                quotesAdapter.submitData(pagingData)
+            }
+        }
+    }
+    private fun performSearch(query: String) {
+        val searchPager = Pager(PagingConfig(pageSize = 1)) {
+            QuotesPagingSource(quotableApi, isSearch = true, searchText = query)
+        }
+
+        lifecycleScope.launch {
+            searchPager.flow.collectLatest { pagingData ->
+                quotesAdapter.submitData(pagingData)
+            }
+        }
+    }
     private lateinit var recyclerView: RecyclerView
     private lateinit var quotesAdapter: QuotesAdapter
     private lateinit var progressBar: ProgressBar
+    private lateinit var searchView: SearchView
     private val BASE_URL = "https://vitainsights-api.azurewebsites.net/"
     private  val TOKEN = "Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6ImQwVm5wVG9wQU9jN05fUDFDQjVkb1EiLCJ0eXAiOiJhdCtqd3QifQ.eyJuYmYiOjE3MDU3NDM3NTAsImV4cCI6MTcwNTc0NzM1MCwiaXNzIjoiaHR0cHM6Ly92aXRhaW5zaWdodHMtaWRlbnRpdHkuYXp1cmV3ZWJzaXRlcy5uZXQiLCJhdWQiOlsiZGdfYXBwb2ludG1lbnRfYXBpIiwiSWRlbnRpdHlTZXJ2ZXJBcGkiLCJ0ZXN0X3NlcnZpY2UiXSwiY2xpZW50X2lkIjoiVml0YUFuZ3VsYXJXZWJUZXN0Iiwic3ViIjoiNzM5ODliYjctOTk4NC00MGEyLWE1OWEtZjE2OTFkOTdmODgxIiwiYXV0aF90aW1lIjoxNzA1NzQzNzUwLCJpZHAiOiJsb2NhbCIsInJvbGUiOiJzdXBlcnVzZXIiLCJwcmVmZXJyZWRfdXNlcm5hbWUiOiJjY2hpY2FnbyIsIm5hbWUiOiJDY2hpY2FnbyBDbGluaWMiLCJlbWFpbCI6ImNoaWNhZ28uY2xpZW50QHlvcG1haWwuY29tIiwicGhvbmVOdW1iZXIiOiI0NTY0NTU0OTc5IiwiZmlyc3ROYW1lIjoiQ2NoaWNhZ28iLCJsYXN0TmFtZSI6IkNsaW5pYyIsImNsaWVudElkIjoiMzM4IiwiY2xpbmljSWQiOiI0MTMiLCJwcm92aWRlcklkIjoiNzQ4IiwiYXBwVXNlcklkIjoiMCIsInNjb3BlIjpbImVtYWlsIiwib3BlbmlkIiwicHJvZmlsZSIsInJvbGUiLCJ0ZW5lbnQiLCJkZ19hcHBvaW50bWVudF9hcGkiLCJJZGVudGl0eVNlcnZlckFwaSIsInRlc3Rfc2VydmljZSJdLCJhbXIiOlsicHdkIl19.uurqDdVB39hCIp3zMyFgNA4awMx4KRRZS73DtGNChQJn9zL3AiONe1J10tnErCOKt9071pQ3WmYDAxcqH16mUs65ZHeXrYdVqPtuaXiy6XFDz-b05tOwqE7ZZkmrUgJQKzBGg27HutXmZMMEb9DzZkzmPWD_3MfCAg4LW04dc_fZVN_P8V1_DwSJkfcGkjm0Sp3SgJfkIEi4qieZJ9g7GaCXpcTAve8AFbpnd5MX0GbgKgRbVnoO5J3Zr8HJdFPqjXsqwbn8OG4tgFJf0A3-SDryAvnvO4P6mY80bwjccyVFwESaS-VBrSZ2t_oAeqc3DNxfro2dT3yJSM-fkQFlDg"
     val okHttpClient = OkHttpClient.Builder()
@@ -157,9 +201,29 @@ class MainActivity : AppCompatActivity() {
 
         recyclerView = findViewById(R.id.recyclerView)
         progressBar = findViewById(R.id.progressBar)
+        searchView = findViewById(R.id.searchview)
 
         quotesAdapter = QuotesAdapter()
+        searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
+            override fun onQueryTextSubmit(query: String?): Boolean {
+                if (!query.isNullOrBlank()) {
+                    performSearch(query)
+                }
+                return true
+            }
 
+            override fun onQueryTextChange(newText: String?): Boolean {
+                // Handle text change if needed
+                if (!newText.isNullOrBlank()) {
+                    // Fetch results as the user types
+                    performSearch(newText)
+                } else {
+                    // If the search query is empty, fetch initial data
+                    fetchInitialData()
+                }
+                return true
+            }
+        })
         val layoutManager = LinearLayoutManager(this)
         recyclerView.layoutManager = layoutManager
 
