@@ -29,41 +29,84 @@ import androidx.paging.LoadStateAdapter
 import androidx.paging.PagingState
 import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.flow.Flow
+import okhttp3.OkHttpClient
 import retrofit2.http.GET
+import retrofit2.http.Header
+import retrofit2.http.Path
 import retrofit2.http.Query
 
-data class QuotesData(
-    val count: Int,
-    val lastItemIndex: Int,
-    val page: Int,
-    val results: List<Result>,
-    val totalCount: Int,
-    val totalPages: Int
+data class DataClass (
+    val patientListDto: List<PatientListDto>,
+    val pageEventDto: PageEventDto
 )
 
-data class Result(
-    val _id: String,
-    val author: String,
-    val authorSlug: String,
-    val content: String,
-    val dateAdded: String,
-    val dateModified: String,
-    val length: Int,
-    val tags: List<String>
+data class PageEventDto (
+    val pageNumber: Long,
+    val totalPages: Long,
+    val totalRows: Long,
+    val rowsPerPage: Long
 )
 
-interface QuotableApi {
-    @GET("quotes")
-    suspend fun getQuotes(@Query("page") page: Int): QuotesData
+data class PatientListDto (
+    val clinicName: ClinicName,
+    val lName: String,
+    val patientID: Long,
+    val inviteStatus: Long,
+    val stateID: Long,
+    val mobile: String,
+    val cityID: Long,
+    val userName: String,
+    val countryID: Long,
+    val doctorName: DoctorName,
+    val patientChartNo: String,
+    val fName: String,
+    val primaryClinicID: Long,
+    val email: String,
+    val primaryDoctorID: Long,
+    val lastVisitedDate: String? = null
+)
+
+enum class ClinicName {
+    AddisonHealthClinic,
+    ChicagoClinic,
+    Clinic2
 }
 
-class QuotesPagingSource(private val quotableApi: QuotableApi) : PagingSource<Int, Result>() {
+enum class DoctorName {
+    ChandlerDoc,
+    FredRick,
+    PriyaDoc
+}
 
-    override suspend fun load(params: LoadParams<Int>): LoadResult<Int, Result> {
+
+interface QuotableApi {
+
+    @GET("api/Patient/{clinicId}/{stateId}/{countryId}/{pageNumber}/10")
+    suspend fun getQuotes(
+        @Header("Authorization") token: String,
+        @Path("clinicId") clinicId: Int,
+        @Path("stateId") stateId: Int,
+        @Path("countryId") countryId: Int,
+        @Path("pageNumber") pageNumber: Int
+    ): DataClass
+    @GET("api/SearchPatient/{clinicId}/{searchText}/{pageNumber}/10")
+    suspend fun searchPatients(
+        @Header("Authorization") token: String,
+        @Path("clinicId") clinicId: Int,
+        @Path("searchText") searchText: String,
+        @Path("pageNumber") pageNumber: Int
+    ): DataClass
+}
+
+class QuotesPagingSource(private val quotableApi: QuotableApi) : PagingSource<Int, PatientListDto>() {
+
+    private val token = "Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6ImQwVm5wVG9wQU9jN05fUDFDQjVkb1EiLCJ0eXAiOiJhdCtqd3QifQ.eyJuYmYiOjE3MDU3MzI0NjQsImV4cCI6MTcwNTczNjA2NCwiaXNzIjoiaHR0cHM6Ly92aXRhaW5zaWdodHMtaWRlbnRpdHkuYXp1cmV3ZWJzaXRlcy5uZXQiLCJhdWQiOlsiZGdfYXBwb2ludG1lbnRfYXBpIiwiSWRlbnRpdHlTZXJ2ZXJBcGkiLCJ0ZXN0X3NlcnZpY2UiXSwiY2xpZW50X2lkIjoiVml0YUFuZ3VsYXJXZWJUZXN0Iiwic3ViIjoiNzM5ODliYjctOTk4NC00MGEyLWE1OWEtZjE2OTFkOTdmODgxIiwiYXV0aF90aW1lIjoxNzA1NzMyNDY0LCJpZHAiOiJsb2NhbCIsInJvbGUiOiJzdXBlcnVzZXIiLCJwcmVmZXJyZWRfdXNlcm5hbWUiOiJjY2hpY2FnbyIsIm5hbWUiOiJDY2hpY2FnbyBDbGluaWMiLCJlbWFpbCI6ImNoaWNhZ28uY2xpZW50QHlvcG1haWwuY29tIiwicGhvbmVOdW1iZXIiOiI0NTY0NTU0OTc5IiwiZmlyc3ROYW1lIjoiQ2NoaWNhZ28iLCJsYXN0TmFtZSI6IkNsaW5pYyIsImNsaWVudElkIjoiMzM4IiwiY2xpbmljSWQiOiI0MTMiLCJwcm92aWRlcklkIjoiNzQ4IiwiYXBwVXNlcklkIjoiMCIsInNjb3BlIjpbImVtYWlsIiwib3BlbmlkIiwicHJvZmlsZSIsInJvbGUiLCJ0ZW5lbnQiLCJkZ19hcHBvaW50bWVudF9hcGkiLCJJZGVudGl0eVNlcnZlckFwaSIsInRlc3Rfc2VydmljZSJdLCJhbXIiOlsicHdkIl19.Mylk6UNdpyWYmU6ruguMsNhOX-wLL5GxkaBAX8y4xsBZM3CkigCUvKggimcdUNp0ZuhgjZw1VvCJH6H2KSqHf2YuZ1LsESXg8NxM9DmELUV4D62x865TcFr-UdyvHkrFeP2y56RpbSJY0dgXem1zMGwgGoWvAKbqmdY8S4cavvSQFwQTy_lcuJgqVhrXNwVDP3_zQZ1d93_fIrOwGog7xezCTxCEwd4H1bWue9bffJFWt-80MC6bWEBsgxuu_73U3ZDAo66wgX1gPQ5FlO3sRDzbdAUnTG_uKOOPAeNxRxp1rFLbArbdlxBFXoS4AKWAC8eUeXK8riDx0N4Pg_Yg2w"
+
+    override suspend fun load(params: LoadParams<Int>): LoadResult<Int, PatientListDto> {
         try {
             val page = params.key ?: 1
-            val response = quotableApi.getQuotes(page)
-            val quotes = response.results
+            val response = quotableApi.getQuotes(token, 338, 0, 0, page)
+            val quotes = response.patientListDto
 
             // Return results with next key (page) for paging
             return LoadResult.Page(
@@ -77,7 +120,7 @@ class QuotesPagingSource(private val quotableApi: QuotableApi) : PagingSource<In
         }
     }
 
-    override fun getRefreshKey(state: PagingState<Int, Result>): Int? {
+    override fun getRefreshKey(state: PagingState<Int, PatientListDto>): Int? {
         // Not needed for this example
         return null
     }
@@ -88,11 +131,23 @@ class MainActivity : AppCompatActivity() {
     private lateinit var recyclerView: RecyclerView
     private lateinit var quotesAdapter: QuotesAdapter
     private lateinit var progressBar: ProgressBar
+    private val BASE_URL = "https://vitainsights-api.azurewebsites.net/"
+    private  val TOKEN = "Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6ImQwVm5wVG9wQU9jN05fUDFDQjVkb1EiLCJ0eXAiOiJhdCtqd3QifQ.eyJuYmYiOjE3MDU3NDM3NTAsImV4cCI6MTcwNTc0NzM1MCwiaXNzIjoiaHR0cHM6Ly92aXRhaW5zaWdodHMtaWRlbnRpdHkuYXp1cmV3ZWJzaXRlcy5uZXQiLCJhdWQiOlsiZGdfYXBwb2ludG1lbnRfYXBpIiwiSWRlbnRpdHlTZXJ2ZXJBcGkiLCJ0ZXN0X3NlcnZpY2UiXSwiY2xpZW50X2lkIjoiVml0YUFuZ3VsYXJXZWJUZXN0Iiwic3ViIjoiNzM5ODliYjctOTk4NC00MGEyLWE1OWEtZjE2OTFkOTdmODgxIiwiYXV0aF90aW1lIjoxNzA1NzQzNzUwLCJpZHAiOiJsb2NhbCIsInJvbGUiOiJzdXBlcnVzZXIiLCJwcmVmZXJyZWRfdXNlcm5hbWUiOiJjY2hpY2FnbyIsIm5hbWUiOiJDY2hpY2FnbyBDbGluaWMiLCJlbWFpbCI6ImNoaWNhZ28uY2xpZW50QHlvcG1haWwuY29tIiwicGhvbmVOdW1iZXIiOiI0NTY0NTU0OTc5IiwiZmlyc3ROYW1lIjoiQ2NoaWNhZ28iLCJsYXN0TmFtZSI6IkNsaW5pYyIsImNsaWVudElkIjoiMzM4IiwiY2xpbmljSWQiOiI0MTMiLCJwcm92aWRlcklkIjoiNzQ4IiwiYXBwVXNlcklkIjoiMCIsInNjb3BlIjpbImVtYWlsIiwib3BlbmlkIiwicHJvZmlsZSIsInJvbGUiLCJ0ZW5lbnQiLCJkZ19hcHBvaW50bWVudF9hcGkiLCJJZGVudGl0eVNlcnZlckFwaSIsInRlc3Rfc2VydmljZSJdLCJhbXIiOlsicHdkIl19.uurqDdVB39hCIp3zMyFgNA4awMx4KRRZS73DtGNChQJn9zL3AiONe1J10tnErCOKt9071pQ3WmYDAxcqH16mUs65ZHeXrYdVqPtuaXiy6XFDz-b05tOwqE7ZZkmrUgJQKzBGg27HutXmZMMEb9DzZkzmPWD_3MfCAg4LW04dc_fZVN_P8V1_DwSJkfcGkjm0Sp3SgJfkIEi4qieZJ9g7GaCXpcTAve8AFbpnd5MX0GbgKgRbVnoO5J3Zr8HJdFPqjXsqwbn8OG4tgFJf0A3-SDryAvnvO4P6mY80bwjccyVFwESaS-VBrSZ2t_oAeqc3DNxfro2dT3yJSM-fkQFlDg"
+    val okHttpClient = OkHttpClient.Builder()
+        .addInterceptor { chain ->
+            val original = chain.request()
+            val request = original.newBuilder()
+                .header("Authorization", TOKEN)
+                .method(original.method(), original.body())
+                .build()
+            chain.proceed(request)
+        }
+        .build()
 
-    private val BASE_URL = "https://api.quotable.io/"
     private val quotableApi = Retrofit.Builder()
         .baseUrl(BASE_URL)
         .addConverterFactory(GsonConverterFactory.create())
+        .client(okHttpClient)
         .build()
         .create(QuotableApi::class.java)
 
@@ -170,7 +225,7 @@ class QuotesLoadStateAdapter(private val retry: () -> Unit) : LoadStateAdapter<Q
 }
 
 class QuotesAdapter :
-    PagingDataAdapter<Result, RecyclerView.ViewHolder>(QUOTES_COMPARATOR) {
+    PagingDataAdapter<PatientListDto, RecyclerView.ViewHolder>(QUOTES_COMPARATOR) {
 
     private val VIEW_TYPE_QUOTE = 0
     private val VIEW_TYPE_PROGRESS = 1
@@ -210,9 +265,9 @@ class QuotesAdapter :
         private val authorTextView: TextView = itemView.findViewById(R.id.authorTextView)
         private val contentTextView: TextView = itemView.findViewById(R.id.contentTextView)
 
-        fun bind(quote: Result) {
-            authorTextView.text = quote.author
-            contentTextView.text = quote.content
+        fun bind(quote: PatientListDto) {
+            authorTextView.text = quote.userName
+            contentTextView.text = quote.mobile
         }
     }
 
@@ -226,12 +281,12 @@ class QuotesAdapter :
     }
 
     companion object {
-        private val QUOTES_COMPARATOR = object : DiffUtil.ItemCallback<Result>() {
-            override fun areItemsTheSame(oldItem: Result, newItem: Result): Boolean {
-                return oldItem._id == newItem._id
+        private val QUOTES_COMPARATOR = object : DiffUtil.ItemCallback<PatientListDto>() {
+            override fun areItemsTheSame(oldItem: PatientListDto, newItem: PatientListDto): Boolean {
+                return oldItem.patientID == newItem.patientID
             }
 
-            override fun areContentsTheSame(oldItem: Result, newItem: Result): Boolean {
+            override fun areContentsTheSame(oldItem: PatientListDto, newItem: PatientListDto): Boolean {
                 return oldItem == newItem
             }
         }
